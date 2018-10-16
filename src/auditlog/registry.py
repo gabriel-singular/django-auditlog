@@ -1,6 +1,6 @@
 from __future__ import unicode_literals
 
-from django.db.models.signals import pre_save, post_save, post_delete
+from django.db.models.signals import pre_save, post_save, post_delete, m2m_changed
 from django.db.models import Model
 from django.utils.six import iteritems
 
@@ -10,7 +10,7 @@ class AuditlogModelRegistry(object):
     A registry that keeps track of the models that use Auditlog to track changes.
     """
     def __init__(self, create=True, update=True, delete=True, custom=None):
-        from auditlog.receivers import log_create, log_update, log_delete
+        from auditlog.receivers import log_create, log_update, log_delete, log_m2m
 
         self._registry = {}
         self._signals = {}
@@ -19,6 +19,7 @@ class AuditlogModelRegistry(object):
             self._signals[post_save] = log_create
         if update:
             self._signals[pre_save] = log_update
+            self._signals[m2m_changed] = log_m2m
         if delete:
             self._signals[post_delete] = log_delete
 
@@ -92,14 +93,24 @@ class AuditlogModelRegistry(object):
         """
         for signal in self._signals:
             receiver = self._signals[signal]
-            signal.connect(receiver, sender=model, dispatch_uid=self._dispatch_uid(signal, model))
+            if signal == m2m_changed:
+                for field in model._meta.many_to_many:
+                    m2m_model = getattr(model, field.name).through
+                    signal.connect(receiver, sender=m2m_model, dispatch_uid=self._dispatch_uid(signal, m2m_model))
+            else:
+                signal.connect(receiver, sender=model, dispatch_uid=self._dispatch_uid(signal, model))
 
     def _disconnect_signals(self, model):
         """
         Disconnect signals for the model.
         """
         for signal, receiver in self._signals.items():
-            signal.disconnect(sender=model, dispatch_uid=self._dispatch_uid(signal, model))
+            if signal == m2m_changed:
+                for field in model._meta.many_to_many:
+                    m2m_model = getattr(model, field.name).through
+                    signal.disconnect(sender=m2m_model, dispatch_uid=self._dispatch_uid(signal, m2m_model))
+            else:
+                signal.disconnect(sender=model, dispatch_uid=self._dispatch_uid(signal, model))
 
     def _dispatch_uid(self, signal, model):
         """

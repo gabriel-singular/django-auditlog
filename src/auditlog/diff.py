@@ -20,8 +20,8 @@ def track_field(field):
     """
     from auditlog.models import LogEntry
     # Do not track many to many relations
-    if field.many_to_many:
-        return False
+    # if field.many_to_many:
+    #     return False
 
     # Do not track relations to LogEntry
     if getattr(field, 'remote_field', None) is not None and field.remote_field.model == LogEntry:
@@ -50,7 +50,8 @@ def get_fields_in_model(instance):
     use_api = hasattr(instance._meta, 'get_fields') and callable(instance._meta.get_fields)
 
     if use_api:
-        return [f for f in instance._meta.get_fields() if track_field(f)]
+        meta_fields = instance._meta.get_fields()
+        return [f for f in meta_fields if track_field(f)]
     return instance._meta.fields
 
 
@@ -73,12 +74,14 @@ def get_field_value(obj, field):
                 value = timezone.make_naive(value, timezone=timezone.utc)
         except ObjectDoesNotExist:
             value = field.default if field.default is not NOT_PROVIDED else None
+    elif field.many_to_many:
+        m2m = getattr(obj, field.name, None)
+        value = [str(obj) for obj in m2m.all()] if m2m is not None and len(m2m.all()) > 0 else list()
     else:
         try:
             value = smart_text(getattr(obj, field.name, None))
         except ObjectDoesNotExist:
             value = field.default if field.default is not NOT_PROVIDED else None
-
     return value
 
 
@@ -105,7 +108,7 @@ def model_instance_diff(old, new):
     diff = {}
 
     if old is not None and new is not None:
-        fields = set(old._meta.fields + new._meta.fields)
+        fields = set(get_fields_in_model(old) + get_fields_in_model(new))
         model_fields = auditlog.get_model_fields(new._meta.model)
     elif old is not None:
         fields = set(get_fields_in_model(old))
