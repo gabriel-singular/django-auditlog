@@ -10,3 +10,7 @@
 venv/
 .tox/
 local_settings.py
+
+env/
+
+dist/
